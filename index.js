@@ -3,6 +3,7 @@ const app = express();
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 require('dotenv').config()
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const port = process.env.PORT || 5000;
 
 // middleware
@@ -31,11 +32,12 @@ async function run() {
     const menuCollection = client.db("bistroBossDB").collection("menu");
     const reviewCollection = client.db("bistroBossDB").collection("reviews");
     const cartCollection = client.db("bistroBossDB").collection("carts");
+    const paymentCollection = client.db("bistroBossDB").collection("payments");
 
     // middlewares
     const verifyToken = async (req, res, next) => {
       // getting the token
-      console.log("inside verify token", req.headers.authorization)
+      // console.log("inside verify token", req.headers.authorization)
       if (!req.headers.authorization) {
         return res.status(401).send({ message: 'Unauthorized access' });
       }
@@ -175,6 +177,50 @@ async function run() {
       const result = await cartCollection.deleteOne(query);
       res.send(result);
     })
+
+    // payments related apis
+
+    app.get('/paymentHistory/:email', verifyToken, async(req, res) => {
+      const email = req.params.email;
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: "Forbidden access" })
+      }
+      const query = { user: email };
+      const result = await paymentCollection.find(query).toArray();
+      res.send(result);
+    })
+
+    app.post('/create-payment-intent', async(req, res) => {
+      const { price } = req.body;
+      const amount = parseInt( price * 100 );
+
+      // console.log(amount, 'inside amount api')
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: 'usd',
+        payment_method_types: ['card']
+      });
+
+    app.post('/payment', async (req, res) => {
+
+      const paymentInfo = req.body;
+
+      // add payment info to database
+      const paymentRes = await paymentCollection.insertOne(paymentInfo);
+
+      // delete items from cart which are paid
+      const filter = { _id: {
+        $in: paymentInfo.cartItemIds.map(id => new ObjectId(id))
+      }}
+      const deleteRes = await cartCollection.deleteMany(filter);
+      res.send([paymentRes, deleteRes])
+    });
+
+      res.send({
+        clientSecret: paymentIntent.client_secret,
+      });
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
