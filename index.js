@@ -74,20 +74,20 @@ async function run() {
       res.send(result);
     })
 
-    app.get('/menu/:id', async(req, res) => {
+    app.get('/menu/:id', async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await menuCollection.findOne(query);
       res.send(result);
     })
 
-    app.post('/menu', verifyToken, verifyAdmin, async(req, res) => {
+    app.post('/menu', verifyToken, verifyAdmin, async (req, res) => {
       const item = req.body;
       const result = await menuCollection.insertOne(item);
       res.send(result);
     })
 
-    app.patch('/menu/:id', verifyToken, verifyAdmin, async(req, res) => {
+    app.patch('/menu/:id', verifyToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const updatedItem = {
         $set: req.body
@@ -102,7 +102,7 @@ async function run() {
       const filter = { _id: new ObjectId(id) };
       const result = await menuCollection.deleteOne(filter);
       res.send(result);
-    } )
+    })
 
     app.get('/reviews', async (req, res) => {
       const result = await reviewCollection.find().toArray();
@@ -180,7 +180,7 @@ async function run() {
 
     // payments related apis
 
-    app.get('/paymentHistory/:email', verifyToken, async(req, res) => {
+    app.get('/paymentHistory/:email', verifyToken, async (req, res) => {
       const email = req.params.email;
       if (email !== req.decoded.email) {
         return res.status(403).send({ message: "Forbidden access" })
@@ -190,9 +190,9 @@ async function run() {
       res.send(result);
     })
 
-    app.post('/create-payment-intent', async(req, res) => {
+    app.post('/create-payment-intent', async (req, res) => {
       const { price } = req.body;
-      const amount = parseInt( price * 100 );
+      const amount = parseInt(price * 100);
 
       // console.log(amount, 'inside amount api')
 
@@ -202,25 +202,93 @@ async function run() {
         payment_method_types: ['card']
       });
 
-    app.post('/payment', async (req, res) => {
+      app.post('/payment', async (req, res) => {
 
-      const paymentInfo = req.body;
+        const paymentInfo = req.body;
 
-      // add payment info to database
-      const paymentRes = await paymentCollection.insertOne(paymentInfo);
+        // add payment info to database
+        const paymentRes = await paymentCollection.insertOne(paymentInfo);
 
-      // delete items from cart which are paid
-      const filter = { _id: {
-        $in: paymentInfo.cartItemIds.map(id => new ObjectId(id))
-      }}
-      const deleteRes = await cartCollection.deleteMany(filter);
-      res.send([paymentRes, deleteRes])
-    });
+        // delete items from cart which are paid
+        const filter = {
+          _id: {
+            $in: paymentInfo.cartItemIds.map(id => new ObjectId(id))
+          }
+        }
+        const deleteRes = await cartCollection.deleteMany(filter);
+        res.send([paymentRes, deleteRes])
+      });
 
       res.send({
         clientSecret: paymentIntent.client_secret,
       });
     });
+
+    // admin stats
+    app.get('/admin-stats', verifyToken, verifyAdmin, async (req, res) => {
+      const users = await userCollection.estimatedDocumentCount();
+      const menuItems = await menuCollection.estimatedDocumentCount();
+      const orders = await paymentCollection.estimatedDocumentCount();
+      const result = await paymentCollection.aggregate([
+        {
+          $group: { _id: null, totalAmount: { $sum: "$totalAmount" } }
+        }
+      ]).toArray();
+
+      const revenue = result.length > 0 ? result[0].totalAmount : 0;
+
+      res.send({
+        users,
+        menuItems,
+        orders,
+        revenue
+      })
+    });
+
+    // order-stats
+    app.get('/order-stats', async (req, res) => {
+      const result = await paymentCollection.aggregate([
+        { $set: { 
+          menuItemIds: { 
+            $map: { 
+              input: "$menuItemIds", as: "item", in: { $toObjectId: "$$item" } 
+              } 
+            } 
+          }
+        },
+        {
+          $unwind: "$menuItemIds"
+        },
+        {
+          $lookup: {
+            from: 'menu',
+            localField: 'menuItemIds',
+            foreignField: '_id',
+            as: 'menuItems'
+          }
+        },
+        {
+          $unwind: '$menuItems'
+        },
+        {
+          $group: {
+            _id: '$menuItems.category',
+            quantity: { $sum: 1 },
+            revenue: { $sum: '$menuItems.price'}
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            category: '$_id',
+            quantity: '$quantity',
+            revenue: '$revenue'
+          }
+        }
+      ]).toArray();
+
+      res.send(result)
+    })
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
