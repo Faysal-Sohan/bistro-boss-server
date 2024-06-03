@@ -7,7 +7,11 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const port = process.env.PORT || 5000;
 
 // middleware
-app.use(cors());
+const corsConfig = {
+  origin: 'https://illustrious-babka-86649c.netlify.app', // Replace with your frontend origin
+  optionsSuccessStatus: 200, // Some legacy browsers expect this
+};
+app.use(cors(corsConfig));
 app.use(express.json());
 
 
@@ -26,7 +30,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const userCollection = client.db("bistroBossDB").collection("users");
     const menuCollection = client.db("bistroBossDB").collection("menu");
@@ -248,12 +252,13 @@ async function run() {
     // order-stats
     app.get('/order-stats', async (req, res) => {
       const result = await paymentCollection.aggregate([
-        { $set: { 
-          menuItemIds: { 
-            $map: { 
-              input: "$menuItemIds", as: "item", in: { $toObjectId: "$$item" } 
-              } 
-            } 
+        {
+          $set: {
+            menuItemIds: {
+              $map: {
+                input: "$menuItemIds", as: "item", in: { $toObjectId: "$$item" }
+              }
+            }
           }
         },
         {
@@ -274,7 +279,7 @@ async function run() {
           $group: {
             _id: '$menuItems.category',
             quantity: { $sum: 1 },
-            revenue: { $sum: '$menuItems.price'}
+            revenue: { $sum: '$menuItems.price' }
           },
         },
         {
@@ -291,8 +296,8 @@ async function run() {
     })
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
